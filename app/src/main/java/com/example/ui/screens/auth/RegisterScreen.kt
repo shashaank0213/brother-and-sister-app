@@ -164,17 +164,30 @@ fun RegisterScreen(
 
       if (errorMessage != null) {
         Spacer(modifier = Modifier.height(12.dp))
-        Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        androidx.compose.material3.Card(
+          modifier = Modifier.fillMaxWidth(),
+          colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+          ),
+          shape = RoundedCornerShape(12.dp)
+        ) {
+          Text(
+            text = errorMessage!!,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(12.dp)
+          )
+        }
       }
 
-      Spacer(modifier = Modifier.height(28.dp))
+      Spacer(modifier = Modifier.height(24.dp))
       Button(
         enabled = !isLoading,
         onClick = {
-          val cleanEmail = email.trim()
+          val cleanEmail = email.trim().lowercase()
           when {
             firstName.isBlank() -> errorMessage = "Please enter your first name."
-            cleanEmail.isBlank() -> errorMessage = "Please enter your email address."
+            cleanEmail.isBlank() || !cleanEmail.contains("@") -> errorMessage = "Please enter a valid email address."
             password.length < 6 -> errorMessage = "Password must be at least 6 characters."
             else -> {
               isLoading = true
@@ -182,7 +195,19 @@ fun RegisterScreen(
               auth.createUserWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
                 if (!task.isSuccessful) {
                   isLoading = false
-                  errorMessage = task.exception?.localizedMessage ?: "Registration failed. Please try again."
+                  val ex = task.exception
+                  val rawMsg = ex?.localizedMessage.orEmpty()
+                  errorMessage = when {
+                    ex is com.google.firebase.auth.FirebaseAuthUserCollisionException ->
+                      "An account already exists with this email. Please sign in instead."
+                    ex is com.google.firebase.auth.FirebaseAuthWeakPasswordException ->
+                      "Password is too weak. Please choose a stronger password."
+                    ex is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException ->
+                      "Invalid email format. Please check your email address."
+                    ex is com.google.firebase.FirebaseNetworkException ->
+                      "Network error. Please check your internet connection."
+                    else -> rawMsg.ifBlank { "Registration failed. Please try again." }
+                  }
                   return@addOnCompleteListener
                 }
 

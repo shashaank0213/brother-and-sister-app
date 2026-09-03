@@ -75,16 +75,29 @@ fun ForgotPasswordScreen(onBack: () -> Unit) {
           Button(
             enabled = !isLoading,
             onClick = {
-              val cleanEmail = email.trim()
-              if (cleanEmail.isBlank()) {
-                errorMessage = "Please enter your email address."
+              val cleanEmail = email.trim().lowercase()
+              if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+                errorMessage = "Please enter a valid email address."
               } else {
                 isLoading = true
                 errorMessage = null
                 auth.sendPasswordResetEmail(cleanEmail).addOnCompleteListener { task ->
                   isLoading = false
-                  if (task.isSuccessful) isSent = true
-                  else errorMessage = task.exception?.localizedMessage ?: "Could not send reset email. Please try again."
+                  if (task.isSuccessful) {
+                    isSent = true
+                  } else {
+                    val ex = task.exception
+                    val rawMsg = ex?.localizedMessage.orEmpty()
+                    errorMessage = when {
+                      ex is com.google.firebase.auth.FirebaseAuthInvalidUserException ->
+                        "No account found with this email. Please check the spelling or create an account."
+                      ex is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException ->
+                        "Invalid email format. Please enter a valid email address."
+                      ex is com.google.firebase.FirebaseNetworkException ->
+                        "Network error. Please check your internet connection."
+                      else -> rawMsg.ifBlank { "Could not send reset email. Please try again." }
+                    }
+                  }
                 }
               }
             },

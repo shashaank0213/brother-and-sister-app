@@ -93,13 +93,27 @@ fun LoginScreen(
         TextButton(onClick = onForgotPassword) { Text("Forgot Password?", style = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.primary)) }
       }
 
-      if (errorMessage != null) Text(errorMessage!!, style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.error), modifier = Modifier.padding(vertical = 6.dp))
-      Spacer(modifier = Modifier.height(20.dp))
+      if (errorMessage != null) {
+        androidx.compose.material3.Card(
+          modifier = Modifier.fillMaxWidth(),
+          colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+          ),
+          shape = RoundedCornerShape(12.dp)
+        ) {
+          Text(
+            text = errorMessage!!,
+            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onErrorContainer),
+            modifier = Modifier.padding(12.dp)
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(16.dp))
 
       Button(
         enabled = !isLoading,
         onClick = {
-          val cleanEmail = email.trim()
+          val cleanEmail = email.trim().lowercase()
           if (cleanEmail.isBlank() || password.isBlank()) {
             errorMessage = "Please enter both your email and password."
           } else {
@@ -108,7 +122,20 @@ fun LoginScreen(
             auth.signInWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
               if (!task.isSuccessful) {
                 isLoading = false
-                errorMessage = task.exception?.localizedMessage ?: "Sign in failed. Please check your email and password."
+                val ex = task.exception
+                val rawMsg = ex?.localizedMessage.orEmpty()
+                errorMessage = when {
+                  ex is com.google.firebase.auth.FirebaseAuthInvalidUserException ->
+                    "No account found with this email. Tap 'Create Account' below to sign up."
+                  ex is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException ||
+                  rawMsg.contains("credential", ignoreCase = true) ||
+                  rawMsg.contains("malformed", ignoreCase = true) ||
+                  rawMsg.contains("expired", ignoreCase = true) ->
+                    "Incorrect email or password. Please verify your credentials or tap 'Forgot Password?' to reset."
+                  ex is com.google.firebase.FirebaseNetworkException ->
+                    "Network error. Please check your internet connection and try again."
+                  else -> rawMsg.ifBlank { "Sign in failed. Please check your email and password." }
+                }
                 return@addOnCompleteListener
               }
 
