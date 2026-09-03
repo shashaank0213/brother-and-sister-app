@@ -136,6 +136,7 @@ fun BrotherSisterApp() {
     composable(Screen.Main.route) {
       MainAppShell(
         onLogout = {
+          com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
           navController.navigate(Screen.Welcome.route) {
             popUpTo(Screen.Main.route) {
               this.inclusive = true
