@@ -47,8 +47,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.ui.theme.HeartRed
+import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun LoginScreen(
@@ -57,224 +57,73 @@ fun LoginScreen(
   onForgotPassword: () -> Unit,
   onNavigateToRegister: () -> Unit
 ) {
-  var email by remember { mutableStateOf("shashaank0213@gmail.com") }
-  var password by remember { mutableStateOf("brotherSister123") }
+  var email by remember { mutableStateOf("") }
+  var password by remember { mutableStateOf("") }
   var passwordVisible by remember { mutableStateOf(false) }
   var errorMessage by remember { mutableStateOf<String?>(null) }
+  var isLoading by remember { mutableStateOf(false) }
+  val auth = remember { FirebaseAuth.getInstance() }
 
-  Box(
-    modifier = Modifier
-      .fillMaxSize()
-      .background(MaterialTheme.colorScheme.background)
-  ) {
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .verticalScroll(rememberScrollState())
-        .padding(horizontal = 24.dp, vertical = 20.dp),
-      horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-      // Top row with Back
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        IconButton(
-          onClick = onBack,
-          modifier = Modifier.size(48.dp)
-        ) {
-          Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurface
-          )
-        }
+  Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+      Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-          text = "Sign In",
-          style = MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.Bold
-          )
-        )
+        Text("Sign In", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
       }
 
       Spacer(modifier = Modifier.height(32.dp))
-
-      Box(
-        modifier = Modifier
-          .size(64.dp)
-          .clip(CircleShape)
-          .background(MaterialTheme.colorScheme.primaryContainer),
-        contentAlignment = Alignment.Center
-      ) {
-        Icon(
-          imageVector = Icons.Default.Favorite,
-          contentDescription = null,
-          tint = HeartRed,
-          modifier = Modifier.size(32.dp)
-        )
+      Box(modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed, modifier = Modifier.size(32.dp))
       }
-
       Spacer(modifier = Modifier.height(16.dp))
-
-      Text(
-        text = "Welcome Back",
-        style = MaterialTheme.typography.headlineLarge.copy(
-          fontWeight = FontWeight.Bold,
-          color = MaterialTheme.colorScheme.onSurface
-        )
-      )
-
+      Text("Welcome Back", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold))
       Spacer(modifier = Modifier.height(6.dp))
-
-      Text(
-        text = "Sign in to access your private brother/sister space",
-        style = MaterialTheme.typography.bodyMedium.copy(
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      )
-
+      Text("Sign in to access your private brother/sister space", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
       Spacer(modifier = Modifier.height(32.dp))
 
-      // Email field
-      OutlinedTextField(
-        value = email,
-        onValueChange = {
-          email = it
-          errorMessage = null
-        },
-        label = { Text("Email Address") },
-        leadingIcon = {
-          Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-      )
-
+      OutlinedTextField(value = email, onValueChange = { email = it; errorMessage = null }, label = { Text("Email Address") }, leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
       Spacer(modifier = Modifier.height(16.dp))
+      OutlinedTextField(value = password, onValueChange = { password = it; errorMessage = null }, label = { Text("Password") }, leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }, trailingIcon = { IconButton(onClick = { passwordVisible = !passwordVisible }) { Icon(if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = if (passwordVisible) "Hide password" else "Show password") } }, visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
 
-      // Password field
-      OutlinedTextField(
-        value = password,
-        onValueChange = {
-          password = it
-          errorMessage = null
-        },
-        label = { Text("Password") },
-        leadingIcon = {
-          Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        },
-        trailingIcon = {
-          IconButton(onClick = { passwordVisible = !passwordVisible }) {
-            Icon(
-              imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-              contentDescription = if (passwordVisible) "Hide password" else "Show password"
-            )
-          }
-        },
-        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-      )
-
-      // Forgot Password link
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(top = 4.dp),
-        contentAlignment = Alignment.CenterEnd
-      ) {
-        TextButton(onClick = onForgotPassword) {
-          Text(
-            text = "Forgot Password?",
-            style = MaterialTheme.typography.labelLarge.copy(
-              color = MaterialTheme.colorScheme.primary
-            )
-          )
-        }
+      Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.CenterEnd) {
+        TextButton(onClick = onForgotPassword) { Text("Forgot Password?", style = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.primary)) }
       }
 
-      if (errorMessage != null) {
-        Text(
-          text = errorMessage!!,
-          style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.error),
-          modifier = Modifier.padding(vertical = 6.dp)
-        )
-      }
-
+      if (errorMessage != null) Text(errorMessage!!, style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.error), modifier = Modifier.padding(vertical = 6.dp))
       Spacer(modifier = Modifier.height(20.dp))
 
-      // Sign In Button
       Button(
+        enabled = !isLoading,
         onClick = {
-          if (email.isBlank() || password.isBlank()) {
+          val cleanEmail = email.trim()
+          if (cleanEmail.isBlank() || password.isBlank()) {
             errorMessage = "Please enter both your email and password."
           } else {
-            onLoginSuccess()
+            isLoading = true
+            errorMessage = null
+            auth.signInWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
+              isLoading = false
+              if (task.isSuccessful) onLoginSuccess()
+              else errorMessage = task.exception?.localizedMessage ?: "Sign in failed. Please check your email and password."
+            }
           }
         },
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(54.dp),
+        modifier = Modifier.fillMaxWidth().height(54.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(
-          containerColor = MaterialTheme.colorScheme.primary
-        )
-      ) {
-        Text(
-          text = "Sign In",
-          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-        )
-      }
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+      ) { Text(if (isLoading) "Signing In..." else "Sign In", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) }
 
       Spacer(modifier = Modifier.height(16.dp))
-
-      // Google Sign-In button
-      OutlinedButton(
-        onClick = onLoginSuccess,
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(52.dp),
-        shape = RoundedCornerShape(16.dp)
-      ) {
-        Text(
-          text = "Continue with Google",
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface
-          )
-        )
+      OutlinedButton(onClick = { errorMessage = "Google Sign-In is not enabled yet. Please use email and password." }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
+        Text("Continue with Google", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium))
       }
 
       Spacer(modifier = Modifier.height(32.dp))
-
-      // Register link
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Text(
-          text = "Don't have an account?",
-          style = MaterialTheme.typography.bodyMedium.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-          )
-        )
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+        Text("Don't have an account?", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
         Spacer(modifier = Modifier.width(4.dp))
-        Text(
-          text = "Create Account",
-          style = MaterialTheme.typography.bodyMedium.copy(
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold
-          ),
-          modifier = Modifier.clickable { onNavigateToRegister() }
-        )
+        Text("Create Account", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold), modifier = Modifier.clickable { onNavigateToRegister() })
       }
     }
   }
