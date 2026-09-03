@@ -49,6 +49,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.HeartRed
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 
 @Composable
 fun LoginScreen(
@@ -63,6 +65,7 @@ fun LoginScreen(
   var errorMessage by remember { mutableStateOf<String?>(null) }
   var isLoading by remember { mutableStateOf(false) }
   val auth = remember { FirebaseAuth.getInstance() }
+  val firestore = remember { FirebaseFirestore.getInstance() }
 
   Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -103,9 +106,60 @@ fun LoginScreen(
             isLoading = true
             errorMessage = null
             auth.signInWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
-              isLoading = false
-              if (task.isSuccessful) onLoginSuccess()
-              else errorMessage = task.exception?.localizedMessage ?: "Sign in failed. Please check your email and password."
+              if (!task.isSuccessful) {
+                isLoading = false
+                errorMessage = task.exception?.localizedMessage ?: "Sign in failed. Please check your email and password."
+                return@addOnCompleteListener
+              }
+
+              val firebaseUser = auth.currentUser
+              if (firebaseUser == null) {
+                isLoading = false
+                errorMessage = "Signed in, but the account could not be loaded. Please try again."
+                return@addOnCompleteListener
+              }
+
+              val uid = firebaseUser.uid
+              val userEmail = firebaseUser.email?.trim()?.lowercase() ?: cleanEmail.lowercase()
+              val userDocument = firestore.collection("users").document(uid)
+
+              // Some accounts were created before Firestore profile creation was added.
+              // Create a minimal profile on first login so sibling email lookup can find them.
+              userDocument.get()
+                .addOnSuccessListener { document ->
+                  if (document.exists()) {
+                    isLoading = false
+                    onLoginSuccess()
+                  } else {
+                    val fallbackName = userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                    val profile = hashMapOf<String, Any>(
+                      "firstName" to fallbackName,
+                      "email" to userEmail,
+                      "dateOfBirth" to "",
+                      "gender" to "",
+                      "country" to "India",
+                      "city" to "",
+                      "bio" to "",
+                      "interests" to emptyList<String>(),
+                      "profilePhoto" to "",
+                      "createdAt" to FieldValue.serverTimestamp()
+                    )
+
+                    userDocument.set(profile)
+                      .addOnSuccessListener {
+                        isLoading = false
+                        onLoginSuccess()
+                      }
+                      .addOnFailureListener { exception ->
+                        isLoading = false
+                        errorMessage = exception.localizedMessage ?: "Signed in, but your profile could not be created."
+                      }
+                  }
+                }
+                .addOnFailureListener { exception ->
+                  isLoading = false
+                  errorMessage = exception.localizedMessage ?: "Signed in, but your profile could not be loaded."
+                }
             }
           }
         },
