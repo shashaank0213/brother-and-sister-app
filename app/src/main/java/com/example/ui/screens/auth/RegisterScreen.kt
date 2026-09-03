@@ -40,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,8 +56,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
+import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -67,318 +66,137 @@ fun RegisterScreen(
   onRegisterSuccess: () -> Unit,
   onNavigateToLogin: () -> Unit
 ) {
-  var firstName by remember { mutableStateOf("Shashank") }
-  var email by remember { mutableStateOf("shashaank0213@gmail.com") }
-  var password by remember { mutableStateOf("brotherSister123") }
-  var dateOfBirth by remember { mutableStateOf("15 August 1998") }
+  var firstName by remember { mutableStateOf("") }
+  var email by remember { mutableStateOf("") }
+  var password by remember { mutableStateOf("") }
+  var dateOfBirth by remember { mutableStateOf("") }
   var gender by remember { mutableStateOf("Brother") }
-  var country by remember { mutableStateOf("India") }
-  var city by remember { mutableStateOf("Bengaluru") }
-  var bio by remember { mutableStateOf("Big brother, memory keeper, preserving our best childhood moments.") }
-  var photoSelected by remember { mutableStateOf(true) }
+  var country by remember { mutableStateOf("") }
+  var city by remember { mutableStateOf("") }
+  var bio by remember { mutableStateOf("") }
+  var photoSelected by remember { mutableStateOf(false) }
+  var errorMessage by remember { mutableStateOf<String?>(null) }
+  var isLoading by remember { mutableStateOf(false) }
+
+  val auth = remember { FirebaseAuth.getInstance() }
 
   val availableInterests = listOf(
     "Childhood Stories", "Family Road Trips", "Festival Cooking",
     "School Nostalgia", "Photography", "Board Games", "Old Music", "Celebrations"
   )
-  val selectedInterests = remember {
-    mutableStateListOf("Childhood Stories", "Family Road Trips", "Festival Cooking")
-  }
+  val selectedInterests = remember { mutableStateListOf<String>() }
 
-  Box(
-    modifier = Modifier
-      .fillMaxSize()
-      .background(MaterialTheme.colorScheme.background)
-  ) {
+  Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .verticalScroll(rememberScrollState())
-        .padding(horizontal = 24.dp, vertical = 20.dp)
+      modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp)
     ) {
-      // Top bar
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
+      Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-          Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurface
-          )
+          Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-          text = "Create Profile",
-          style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-        )
+        Text("Create Profile", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
       }
 
       Spacer(modifier = Modifier.height(20.dp))
-
-      Text(
-        text = "Your Family Identity",
-        style = MaterialTheme.typography.headlineMedium.copy(
-          fontWeight = FontWeight.Bold,
-          color = MaterialTheme.colorScheme.onSurface
-        )
-      )
-
-      Text(
-        text = "Only your connected brother or sister will ever see this information.",
-        style = MaterialTheme.typography.bodySmall.copy(
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      )
-
+      Text("Your Family Identity", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold))
+      Text("Only your connected brother or sister will ever see this information.", style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
       Spacer(modifier = Modifier.height(24.dp))
 
-      // Profile Photo Picker Section
-      Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
-      ) {
+      Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
           Box(
-            modifier = Modifier
-              .size(96.dp)
-              .clip(CircleShape)
-              .background(MaterialTheme.colorScheme.primaryContainer)
-              .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-              .clickable { photoSelected = !photoSelected },
+            modifier = Modifier.size(96.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
+              .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape).clickable { photoSelected = !photoSelected },
             contentAlignment = Alignment.Center
           ) {
             if (photoSelected) {
-              Image(
-                painter = painterResource(id = R.drawable.ic_app_logo),
-                contentDescription = "Profile Photo",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-              )
+              Image(painter = painterResource(id = R.drawable.ic_app_logo), contentDescription = "Profile Photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
-              Icon(
-                imageVector = Icons.Default.AddPhotoAlternate,
-                contentDescription = "Add Photo",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp)
-              )
+              Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Add Photo", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
             }
           }
-
           Spacer(modifier = Modifier.height(8.dp))
-
-          Text(
-            text = if (photoSelected) "Tap to change photo" else "Add profile photo",
-            style = MaterialTheme.typography.labelMedium.copy(
-              color = MaterialTheme.colorScheme.primary,
-              fontWeight = FontWeight.Medium
-            )
-          )
+          Text(if (photoSelected) "Tap to change photo" else "Add profile photo", style = MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium))
         }
       }
 
       Spacer(modifier = Modifier.height(24.dp))
-
-      // First Name
-      OutlinedTextField(
-        value = firstName,
-        onValueChange = { firstName = it },
-        label = { Text("First Name *") },
-        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true
-      )
-
+      OutlinedTextField(value = firstName, onValueChange = { firstName = it; errorMessage = null }, label = { Text("First Name *") }, leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
+      Spacer(modifier = Modifier.height(14.dp))
+      OutlinedTextField(value = email, onValueChange = { email = it; errorMessage = null }, label = { Text("Email Address *") }, leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+      Spacer(modifier = Modifier.height(14.dp))
+      OutlinedTextField(value = password, onValueChange = { password = it; errorMessage = null }, label = { Text("Password *") }, leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+      Spacer(modifier = Modifier.height(14.dp))
+      OutlinedTextField(value = dateOfBirth, onValueChange = { dateOfBirth = it }, label = { Text("Date of Birth / Age") }, leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
       Spacer(modifier = Modifier.height(14.dp))
 
-      // Email
-      OutlinedTextField(
-        value = email,
-        onValueChange = { email = it },
-        label = { Text("Email Address *") },
-        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-      )
-
-      Spacer(modifier = Modifier.height(14.dp))
-
-      // Password
-      OutlinedTextField(
-        value = password,
-        onValueChange = { password = it },
-        label = { Text("Password *") },
-        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-        visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-      )
-
-      Spacer(modifier = Modifier.height(14.dp))
-
-      // Date of birth
-      OutlinedTextField(
-        value = dateOfBirth,
-        onValueChange = { dateOfBirth = it },
-        label = { Text("Date of Birth / Age") },
-        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true
-      )
-
-      Spacer(modifier = Modifier.height(14.dp))
-
-      // Gender / Role (Optional)
-      Text(
-        text = "I am a (Optional):",
-        style = MaterialTheme.typography.labelMedium.copy(
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          fontWeight = FontWeight.Medium
-        )
-      )
+      Text("I am a (Optional):", style = MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium))
       Spacer(modifier = Modifier.height(6.dp))
       Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf("Brother", "Sister", "Prefer not to say").forEach { role ->
           val isSelected = gender == role
-          FilterChip(
-            selected = isSelected,
-            onClick = { gender = role },
-            label = { Text(role) },
-            leadingIcon = if (isSelected) {
-              { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            } else null,
-            colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-              selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-          )
+          FilterChip(selected = isSelected, onClick = { gender = role }, label = { Text(role) }, leadingIcon = if (isSelected) ({ Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }) else null, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primaryContainer, selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer))
         }
       }
 
       Spacer(modifier = Modifier.height(14.dp))
-
-      // Location: Country & City
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-      ) {
-        OutlinedTextField(
-          value = country,
-          onValueChange = { country = it },
-          label = { Text("Country") },
-          leadingIcon = { Icon(Icons.Default.Public, contentDescription = null) },
-          modifier = Modifier.weight(1f),
-          shape = RoundedCornerShape(16.dp),
-          singleLine = true
-        )
-
-        OutlinedTextField(
-          value = city,
-          onValueChange = { city = it },
-          label = { Text("City / State (Optional)") },
-          leadingIcon = { Icon(Icons.Default.LocationCity, contentDescription = null) },
-          modifier = Modifier.weight(1f),
-          shape = RoundedCornerShape(16.dp),
-          singleLine = true
-        )
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedTextField(value = country, onValueChange = { country = it }, label = { Text("Country") }, leadingIcon = { Icon(Icons.Default.Public, contentDescription = null) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), singleLine = true)
+        OutlinedTextField(value = city, onValueChange = { city = it }, label = { Text("City / State (Optional)") }, leadingIcon = { Icon(Icons.Default.LocationCity, contentDescription = null) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), singleLine = true)
       }
 
       Spacer(modifier = Modifier.height(14.dp))
-
-      // Bio
-      OutlinedTextField(
-        value = bio,
-        onValueChange = { bio = it },
-        label = { Text("Family Bio / Note to Sibling") },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        minLines = 2,
-        maxLines = 4
-      )
-
+      OutlinedTextField(value = bio, onValueChange = { bio = it }, label = { Text("Family Bio / Note to Sibling") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), minLines = 2, maxLines = 4)
       Spacer(modifier = Modifier.height(18.dp))
 
-      // Interests
-      Text(
-        text = "Shared Family Interests:",
-        style = MaterialTheme.typography.labelMedium.copy(
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          fontWeight = FontWeight.Medium
-        )
-      )
+      Text("Shared Family Interests:", style = MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium))
       Spacer(modifier = Modifier.height(8.dp))
-      FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-      ) {
+      FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         availableInterests.forEach { interest ->
           val isSelected = selectedInterests.contains(interest)
-          FilterChip(
-            selected = isSelected,
-            onClick = {
-              if (isSelected) selectedInterests.remove(interest)
-              else selectedInterests.add(interest)
-            },
-            label = { Text(interest) },
-            leadingIcon = if (isSelected) {
-              { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            } else null
-          )
+          FilterChip(selected = isSelected, onClick = { if (isSelected) selectedInterests.remove(interest) else selectedInterests.add(interest) }, label = { Text(interest) }, leadingIcon = if (isSelected) ({ Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }) else null)
         }
+      }
+
+      if (errorMessage != null) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
       }
 
       Spacer(modifier = Modifier.height(28.dp))
-
-      // Complete Registration Button
       Button(
-        onClick = onRegisterSuccess,
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(54.dp),
+        enabled = !isLoading,
+        onClick = {
+          val cleanEmail = email.trim()
+          when {
+            firstName.isBlank() -> errorMessage = "Please enter your first name."
+            cleanEmail.isBlank() -> errorMessage = "Please enter your email address."
+            password.length < 6 -> errorMessage = "Password must be at least 6 characters."
+            else -> {
+              isLoading = true
+              errorMessage = null
+              auth.createUserWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
+                isLoading = false
+                if (task.isSuccessful) onRegisterSuccess()
+                else errorMessage = task.exception?.localizedMessage ?: "Registration failed. Please try again."
+              }
+            }
+          }
+        },
+        modifier = Modifier.fillMaxWidth().height(54.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(
-          containerColor = MaterialTheme.colorScheme.primary
-        )
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
       ) {
-        Text(
-          text = "Create Family Space",
-          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-        )
+        Text(if (isLoading) "Creating Account..." else "Create Family Space", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
       }
 
       Spacer(modifier = Modifier.height(16.dp))
-
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Text(
-          text = "Already registered?",
-          style = MaterialTheme.typography.bodyMedium.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-          )
-        )
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+        Text("Already registered?", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
         Spacer(modifier = Modifier.width(4.dp))
-        Text(
-          text = "Sign In",
-          style = MaterialTheme.typography.bodyMedium.copy(
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold
-          ),
-          modifier = Modifier.clickable { onNavigateToLogin() }
-        )
+        Text("Sign In", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold), modifier = Modifier.clickable { onNavigateToLogin() })
       }
-
       Spacer(modifier = Modifier.height(20.dp))
     }
   }
