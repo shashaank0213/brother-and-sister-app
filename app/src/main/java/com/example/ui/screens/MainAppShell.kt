@@ -1,8 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +32,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -47,6 +45,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.data.SampleData
 import com.example.model.MemoryItem
+import com.example.model.SiblingConnection
+import com.example.model.UserProfile
 import com.example.ui.components.AddMemoryDialog
 import com.example.ui.screens.albums.AlbumsScreen
 import com.example.ui.screens.chat.ChatScreen
@@ -59,7 +59,8 @@ import com.example.ui.theme.EditorialEspresso
 import com.example.ui.theme.EditorialMauve
 import com.example.ui.theme.EditorialPlum
 import com.example.ui.theme.EditorialRoseBlush
-import com.example.ui.theme.EditorialWarmIvory
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 
 sealed class BottomNavItem(
@@ -81,9 +82,89 @@ fun MainAppShell(
   var selectedTab by remember { mutableIntStateOf(0) }
   var showAddMemoryDialog by remember { mutableStateOf(false) }
   var showConnectScreen by remember { mutableStateOf(false) }
+  var currentUserProfile by remember { mutableStateOf(UserProfile()) }
+  var currentConnection by remember {
+    mutableStateOf(
+      SiblingConnection(
+        siblingName = "Sibling",
+        siblingRole = "Brother/Sister",
+        sharedMemoryCount = 0,
+        photoCount = 0,
+        videoCount = 0
+      )
+    )
+  }
+
   val memoriesList = remember { mutableStateListOf<MemoryItem>().apply { addAll(SampleData.sampleMemories) } }
   val snackbarHostState = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
+  val auth = remember { FirebaseAuth.getInstance() }
+  val db = remember { FirebaseFirestore.getInstance() }
+
+  LaunchedEffect(Unit) {
+    val uid = auth.currentUser?.uid ?: return@LaunchedEffect
+
+    db.collection("users").document(uid).get().addOnSuccessListener { document ->
+      if (document.exists()) {
+        currentUserProfile = UserProfile(
+          id = uid,
+          firstName = document.getString("firstName") ?: "User",
+          email = document.getString("email") ?: auth.currentUser?.email.orEmpty(),
+          dateOfBirth = document.getString("dateOfBirth") ?: "",
+          gender = document.getString("gender") ?: "",
+          country = document.getString("country") ?: "",
+          city = document.getString("city") ?: "",
+          bio = document.getString("bio") ?: "",
+          interests = (document.get("interests") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+        )
+      }
+    }
+
+    fun loadConnection(document: com.google.firebase.firestore.DocumentSnapshot) {
+      val user1 = document.getString("user1Uid")
+      val user2 = document.getString("user2Uid")
+      val otherUid = if (user1 == uid) user2 else user1
+      if (otherUid.isNullOrBlank()) return
+
+      db.collection("users").document(otherUid).get().addOnSuccessListener { sibling ->
+        if (sibling.exists()) {
+          val gender = sibling.getString("gender")?.lowercase()
+          val role = when (gender) {
+            "sister" -> "Sister"
+            "brother" -> "Brother"
+            else -> "Sibling"
+          }
+          val name = sibling.getString("firstName") ?: "Sibling"
+          currentConnection = SiblingConnection(
+            connectionId = document.id,
+            siblingName = name,
+            siblingRole = role,
+            sharedMemoryCount = 42,
+            photoCount = 128,
+            videoCount = 14
+          )
+        }
+      }
+    }
+
+    db.collection("siblingConnections")
+      .whereEqualTo("user1Uid", uid)
+      .limit(1)
+      .get()
+      .addOnSuccessListener { first ->
+        if (first.documents.isNotEmpty()) {
+          loadConnection(first.documents.first())
+        } else {
+          db.collection("siblingConnections")
+            .whereEqualTo("user2Uid", uid)
+            .limit(1)
+            .get()
+            .addOnSuccessListener { second ->
+              if (second.documents.isNotEmpty()) loadConnection(second.documents.first())
+            }
+        }
+      }
+  }
 
   val navItems = listOf(
     BottomNavItem.Home,
@@ -109,7 +190,7 @@ fun MainAppShell(
   Scaffold(
     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     bottomBar = {
-      androidx.compose.foundation.layout.Column {
+      Column {
         Box(
           modifier = Modifier
             .fillMaxWidth()
@@ -152,7 +233,6 @@ fun MainAppShell(
       }
     },
     floatingActionButton = {
-      // FAB shown on Home, Memories, and Albums screens
       if (selectedTab in listOf(0, 1, 3)) {
         FloatingActionButton(
           onClick = { showAddMemoryDialog = true },
@@ -160,39 +240,32 @@ fun MainAppShell(
           contentColor = androidx.compose.ui.graphics.Color.White,
           shape = CircleShape
         ) {
-          Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = "Add Memory",
-            modifier = Modifier.size(26.dp)
-          )
+          Icon(Icons.Default.Add, contentDescription = "Add Memory", modifier = Modifier.size(26.dp))
         }
       }
     }
-
   ) { innerPadding ->
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
       when (selectedTab) {
         0 -> HomeScreen(
+          user = currentUserProfile,
+          connection = currentConnection,
           memories = memoriesList,
           onAddMemoryClick = { showAddMemoryDialog = true },
           onMessageClick = { selectedTab = 2 },
           onConnectSiblingClick = { showConnectScreen = true },
           onViewAllMemories = { selectedTab = 1 },
           onNotificationsClick = {
+            val name = currentConnection.siblingName
             coroutineScope.launch {
-              snackbarHostState.showSnackbar("Notifications: Ananya shared a new memory 🎂")
+              snackbarHostState.showSnackbar(
+                if (currentConnection.siblingRole == "Brother/Sister") "No sibling connection yet" else "$name shared a new memory 🎂"
+              )
             }
           }
         )
-        1 -> MemoriesScreen(
-          memoriesList = memoriesList,
-          onAddMemoryClick = { showAddMemoryDialog = true }
-        )
-        2 -> ChatScreen(siblingName = "Ananya")
+        1 -> MemoriesScreen(memoriesList = memoriesList, onAddMemoryClick = { showAddMemoryDialog = true })
+        2 -> ChatScreen(siblingName = currentConnection.siblingName)
         3 -> AlbumsScreen()
         4 -> ProfileScreen(
           onLogout = onLogout,
@@ -206,9 +279,7 @@ fun MainAppShell(
         onDismiss = { showAddMemoryDialog = false },
         onSaveMemory = { newMemory ->
           memoriesList.add(0, newMemory)
-          coroutineScope.launch {
-            snackbarHostState.showSnackbar("Memory saved to private space ❤️")
-          }
+          coroutineScope.launch { snackbarHostState.showSnackbar("Memory saved to private space ❤️") }
         }
       )
     }
