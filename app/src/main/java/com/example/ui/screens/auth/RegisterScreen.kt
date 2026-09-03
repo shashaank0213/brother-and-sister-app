@@ -53,11 +53,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -79,6 +82,7 @@ fun RegisterScreen(
   var isLoading by remember { mutableStateOf(false) }
 
   val auth = remember { FirebaseAuth.getInstance() }
+  val firestore = remember { FirebaseFirestore.getInstance() }
 
   val availableInterests = listOf(
     "Childhood Stories", "Family Road Trips", "Festival Cooking",
@@ -177,9 +181,41 @@ fun RegisterScreen(
               isLoading = true
               errorMessage = null
               auth.createUserWithEmailAndPassword(cleanEmail, password).addOnCompleteListener { task ->
-                isLoading = false
-                if (task.isSuccessful) onRegisterSuccess()
-                else errorMessage = task.exception?.localizedMessage ?: "Registration failed. Please try again."
+                if (!task.isSuccessful) {
+                  isLoading = false
+                  errorMessage = task.exception?.localizedMessage ?: "Registration failed. Please try again."
+                  return@addOnCompleteListener
+                }
+
+                val uid = auth.currentUser?.uid
+                if (uid == null) {
+                  isLoading = false
+                  errorMessage = "Account was created, but the user ID could not be found. Please try again."
+                  return@addOnCompleteListener
+                }
+
+                val profile = hashMapOf<String, Any>(
+                  "firstName" to firstName.trim(),
+                  "email" to cleanEmail,
+                  "dateOfBirth" to dateOfBirth.trim(),
+                  "gender" to gender,
+                  "country" to country.trim(),
+                  "city" to city.trim(),
+                  "bio" to bio.trim(),
+                  "interests" to selectedInterests.toList(),
+                  "profilePhoto" to "",
+                  "createdAt" to FieldValue.serverTimestamp()
+                )
+
+                firestore.collection("users").document(uid).set(profile)
+                  .addOnSuccessListener {
+                    isLoading = false
+                    onRegisterSuccess()
+                  }
+                  .addOnFailureListener { exception ->
+                    isLoading = false
+                    errorMessage = exception.localizedMessage ?: "Account created, but the profile could not be saved. Please try again."
+                  }
               }
             }
           }
