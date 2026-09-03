@@ -1,9 +1,6 @@
 package com.example.ui.screens.profile
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,11 +17,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.CardMembership
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Lock
@@ -42,15 +37,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,30 +52,103 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
-import com.example.data.SampleData
-import com.example.model.UserProfile
-import com.example.ui.theme.HeartRed
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.example.ui.theme.WarmGold
 
 @Composable
 fun ProfileScreen(
-  user: UserProfile = SampleData.currentUser,
   onLogout: () -> Unit,
   onNavigateToConnect: () -> Unit
 ) {
-  var showDisconnectDialog by remember { mutableStateOf(false) }
-  var showDeleteDialog by remember { mutableStateOf(false) }
+  val auth = remember { FirebaseAuth.getInstance() }
+  val db = remember { FirebaseFirestore.getInstance() }
+
+  var firstName by remember { mutableStateOf("Loading...") }
+  var email by remember { mutableStateOf(auth.currentUser?.email ?: "") }
+  var bio by remember { mutableStateOf("") }
+  var siblingName by remember { mutableStateOf<String?>(null) }
+  var siblingRole by remember { mutableStateOf<String?>(null) }
+  var isLoadingConnection by remember { mutableStateOf(true) }
+  var showConnectionDialog by remember { mutableStateOf(false) }
   var showPremiumDialog by remember { mutableStateOf(false) }
   var notificationsEnabled by remember { mutableStateOf(true) }
+
+  LaunchedEffect(Unit) {
+    val currentUser = auth.currentUser
+    val uid = currentUser?.uid
+    email = currentUser?.email ?: ""
+
+    if (uid == null) {
+      firstName = "Guest"
+      isLoadingConnection = false
+      return@LaunchedEffect
+    }
+
+    db.collection("users").document(uid).get().addOnSuccessListener { document ->
+      if (document.exists()) {
+        firstName = document.getString("firstName") ?: "User"
+        bio = document.getString("bio") ?: ""
+        email = document.getString("email") ?: currentUser.email.orEmpty()
+      } else {
+        firstName = "User"
+      }
+    }
+
+    fun loadOtherUser(connectionDocument: com.google.firebase.firestore.DocumentSnapshot) {
+      val user1 = connectionDocument.getString("user1Uid")
+      val user2 = connectionDocument.getString("user2Uid")
+      val otherUid = if (user1 == uid) user2 else user1
+
+      if (otherUid.isNullOrBlank()) {
+        isLoadingConnection = false
+        return
+      }
+
+      db.collection("users").document(otherUid).get().addOnSuccessListener { siblingDocument ->
+        if (siblingDocument.exists()) {
+          siblingName = siblingDocument.getString("firstName") ?: "Sibling"
+          val gender = siblingDocument.getString("gender")
+          siblingRole = when (gender?.lowercase()) {
+            "sister" -> "Sister"
+            "brother" -> "Brother"
+            else -> "Sibling"
+          }
+        }
+        isLoadingConnection = false
+      }.addOnFailureListener {
+        isLoadingConnection = false
+      }
+    }
+
+    db.collection("siblingConnections")
+      .whereEqualTo("user1Uid", uid)
+      .limit(1)
+      .get()
+      .addOnSuccessListener { snapshot ->
+        if (snapshot.documents.isNotEmpty()) {
+          loadOtherUser(snapshot.documents.first())
+        } else {
+          db.collection("siblingConnections")
+            .whereEqualTo("user2Uid", uid)
+            .limit(1)
+            .get()
+            .addOnSuccessListener { secondSnapshot ->
+              if (secondSnapshot.documents.isNotEmpty()) {
+                loadOtherUser(secondSnapshot.documents.first())
+              } else {
+                isLoadingConnection = false
+              }
+            }
+            .addOnFailureListener { isLoadingConnection = false }
+        }
+      }
+      .addOnFailureListener { isLoadingConnection = false }
+  }
 
   Box(
     modifier = Modifier
@@ -92,7 +159,6 @@ fun ProfileScreen(
       modifier = Modifier.fillMaxSize(),
       contentPadding = PaddingValues(bottom = 100.dp)
     ) {
-      // Profile Header
       item {
         Column(
           modifier = Modifier
@@ -104,48 +170,41 @@ fun ProfileScreen(
             modifier = Modifier
               .size(90.dp)
               .clip(CircleShape)
-              .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape),
+              .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
           ) {
-            Image(
-              painter = painterResource(id = R.drawable.ic_app_logo),
-              contentDescription = "Profile Photo",
-              contentScale = ContentScale.Crop,
-              modifier = Modifier.fillMaxSize()
+            Text(
+              text = firstName.take(1).uppercase(),
+              style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.primary
             )
           }
 
           Spacer(modifier = Modifier.height(14.dp))
 
           Text(
-            text = user.firstName,
-            style = MaterialTheme.typography.headlineMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.onSurface
-            )
+            text = firstName,
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
           )
-
           Text(
-            text = user.email,
-            style = MaterialTheme.typography.bodySmall.copy(
-              color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = email,
+            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+          )
+
+          if (bio.isNotBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+              text = "“$bio”",
+              style = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 20.sp
+              ),
+              modifier = Modifier.padding(horizontal = 24.dp)
             )
-          )
-
-          Spacer(modifier = Modifier.height(8.dp))
-
-          Text(
-            text = "“${user.bio}”",
-            style = MaterialTheme.typography.bodyMedium.copy(
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              lineHeight = 20.sp
-            ),
-            modifier = Modifier.padding(horizontal = 24.dp)
-          )
+          }
 
           Spacer(modifier = Modifier.height(16.dp))
 
-          // Sibling Connection Card
           Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -160,7 +219,7 @@ fun ProfileScreen(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
+              Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Box(
                   modifier = Modifier
                     .size(42.dp)
@@ -168,54 +227,53 @@ fun ProfileScreen(
                     .background(MaterialTheme.colorScheme.primary),
                   contentAlignment = Alignment.Center
                 ) {
-                  Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                  )
+                  Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.White)
                 }
-
                 Spacer(modifier = Modifier.width(12.dp))
-
                 Column {
-                  Text(
-                    text = "Connected with Ananya",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                  )
-                  Text(
-                    text = "Sister • Private Space Active",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                      color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                  )
+                  when {
+                    isLoadingConnection -> {
+                      Text("Checking sibling connection...", fontWeight = FontWeight.Bold)
+                    }
+                    siblingName != null -> {
+                      Text("Connected with $siblingName", fontWeight = FontWeight.Bold)
+                      Text(
+                        "${siblingRole ?: "Sibling"} • Private Space Active",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                          color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                      )
+                    }
+                    else -> {
+                      Text("No sibling connected", fontWeight = FontWeight.Bold)
+                      Text(
+                        "Connect your brother or sister to create a private space",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                          color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                      )
+                    }
+                  }
                 }
               }
 
-              TextButton(onClick = { showDisconnectDialog = true }) {
-                Text(
-                  text = "Manage",
-                  style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                  )
-                )
+              if (!isLoadingConnection) {
+                TextButton(onClick = {
+                  if (siblingName != null) showConnectionDialog = true else onNavigateToConnect()
+                }) {
+                  Text(if (siblingName != null) "Manage" else "Connect")
+                }
               }
             }
           }
 
           Spacer(modifier = Modifier.height(16.dp))
 
-          // Premium Tier Card (₹19/month)
           Card(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { showPremiumDialog = true },
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(
-              containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = androidx.compose.foundation.BorderStroke(1.dp, WarmGold.copy(alpha = 0.7f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            onClick = { showPremiumDialog = true }
           ) {
             Row(
               modifier = Modifier
@@ -223,58 +281,25 @@ fun ProfileScreen(
                 .padding(18.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Box(
-                modifier = Modifier
-                  .size(48.dp)
-                  .clip(CircleShape)
-                  .background(WarmGold.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Star,
-                  contentDescription = null,
-                  tint = WarmGold,
-                  modifier = Modifier.size(28.dp)
-                )
-              }
-
+              Icon(Icons.Default.Star, contentDescription = null, tint = WarmGold, modifier = Modifier.size(30.dp))
               Spacer(modifier = Modifier.width(14.dp))
-
               Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Text(
-                    text = "Brother & Sister Premium",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                  )
-                }
+                Text("Brother & Sister Premium", fontWeight = FontWeight.Bold)
                 Text(
-                  text = "Unlimited HD photos, videos & backup for ₹19/mo",
-                  style = MaterialTheme.typography.bodySmall.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                  )
+                  "Unlimited HD photos, videos & backup for ₹19/mo",
+                  style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
               }
-
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.outline
-              )
+              Icon(Icons.Default.CardMembership, contentDescription = null, tint = WarmGold)
             }
           }
         }
       }
 
-      // Settings Group
       item {
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
           Text(
-            text = "PREFERENCES & SECURITY",
+            "PREFERENCES & SECURITY",
             style = MaterialTheme.typography.labelSmall.copy(
               color = MaterialTheme.colorScheme.outline,
               fontWeight = FontWeight.Bold,
@@ -286,33 +311,18 @@ fun ProfileScreen(
           Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(
-              1.dp,
-              MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
           ) {
             Column {
-              // Notification toggle
               Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
               ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                  Icon(
-                    Icons.Default.Notifications,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                  )
+                  Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                   Spacer(modifier = Modifier.width(14.dp))
-                  Text(
-                    text = "Memory Notifications",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
-                  )
+                  Text("Memory Notifications", fontWeight = FontWeight.Medium)
                 }
                 Switch(
                   checked = notificationsEnabled,
@@ -321,47 +331,22 @@ fun ProfileScreen(
                 )
               }
 
-              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-              ProfileMenuItem(
-                icon = Icons.Default.Lock,
-                title = "Privacy & Encryption",
-                subtitle = "Only you and your sibling can view memories",
-                onClick = {}
-              )
-
-              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-              ProfileMenuItem(
-                icon = Icons.Default.Security,
-                title = "Security & Passcode Lock",
-                subtitle = "Protect memory app with biometric unlock",
-                onClick = {}
-              )
-
-              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-              ProfileMenuItem(
-                icon = Icons.Default.CloudDone,
-                title = "Cloud Backup & Export",
-                subtitle = "Download all photos and memories safely",
-                onClick = {}
-              )
+              HorizontalDivider()
+              ProfileMenuItem(Icons.Default.Lock, "Privacy & Encryption", "Only you and your sibling can view memories")
+              HorizontalDivider()
+              ProfileMenuItem(Icons.Default.Security, "Security & Passcode Lock", "Protect the app with biometric unlock")
+              HorizontalDivider()
+              ProfileMenuItem(Icons.Default.CloudDone, "Cloud Backup & Export", "Download all photos and memories safely")
             }
           }
         }
       }
 
-      // Support & Legal Group
       item {
         Spacer(modifier = Modifier.height(20.dp))
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
           Text(
-            text = "SUPPORT & LEGAL",
+            "SUPPORT & LEGAL",
             style = MaterialTheme.typography.labelSmall.copy(
               color = MaterialTheme.colorScheme.outline,
               fontWeight = FontWeight.Bold,
@@ -369,239 +354,87 @@ fun ProfileScreen(
             ),
             modifier = Modifier.padding(vertical = 8.dp)
           )
-
           Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(
-              1.dp,
-              MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
           ) {
             Column {
-              ProfileMenuItem(
-                icon = Icons.Default.HelpOutline,
-                title = "Help & Family Guides",
-                onClick = {}
-              )
-
-              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-              ProfileMenuItem(
-                icon = Icons.Default.ReportProblem,
-                title = "Report a Problem",
-                onClick = {}
-              )
-
-              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-              ProfileMenuItem(
-                icon = Icons.Default.VerifiedUser,
-                title = "Terms of Service & Privacy Policy",
-                onClick = {}
-              )
+              ProfileMenuItem(Icons.Default.HelpOutline, "Help & Family Guides")
+              HorizontalDivider()
+              ProfileMenuItem(Icons.Default.ReportProblem, "Report a Problem")
+              HorizontalDivider()
+              ProfileMenuItem(Icons.Default.VerifiedUser, "Terms of Service & Privacy Policy")
             }
           }
         }
       }
 
-      // Actions Group: Logout & Delete
       item {
         Spacer(modifier = Modifier.height(20.dp))
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
           OutlinedButton(
             onClick = onLogout,
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(16.dp)
           ) {
             Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Log Out", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-          }
-
-          Spacer(modifier = Modifier.height(10.dp))
-
-          TextButton(
-            onClick = { showDeleteDialog = true },
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Text(
-              text = "Delete Account & Wipe Space",
-              style = MaterialTheme.typography.bodySmall.copy(
-                color = MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.Medium
-              )
-            )
+            Text("Log Out", fontWeight = FontWeight.SemiBold)
           }
         }
       }
     }
 
-    // Disconnect Sibling Dialog
-    if (showDisconnectDialog) {
+    if (showConnectionDialog && siblingName != null) {
       AlertDialog(
-        onDismissRequest = { showDisconnectDialog = false },
+        onDismissRequest = { showConnectionDialog = false },
         title = { Text("Sibling Connection") },
-        text = {
-          Text(
-            "You are currently connected to Ananya in a private space. You can disconnect or invite another sibling if needed."
-          )
-        },
+        text = { Text("You are connected with $siblingName in a private sibling space.") },
         confirmButton = {
-          Button(
-            onClick = {
-              showDisconnectDialog = false
-              onNavigateToConnect()
-            }
-          ) {
-            Text("Connection Settings")
-          }
+          Button(onClick = {
+            showConnectionDialog = false
+            onNavigateToConnect()
+          }) { Text("Connection Settings") }
         },
-        dismissButton = {
-          TextButton(onClick = { showDisconnectDialog = false }) {
-            Text("Cancel")
-          }
-        }
+        dismissButton = { TextButton(onClick = { showConnectionDialog = false }) { Text("Close") } }
       )
     }
 
-    // Delete Account Dialog
-    if (showDeleteDialog) {
-      AlertDialog(
-        onDismissRequest = { showDeleteDialog = false },
-        title = { Text("Delete Account?", color = MaterialTheme.colorScheme.error) },
-        text = {
-          Text("This action cannot be undone. All shared memories and chat messages in your space will be permanently erased.")
-        },
-        confirmButton = {
-          Button(
-            onClick = {
-              showDeleteDialog = false
-              onLogout()
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-          ) {
-            Text("Delete Forever")
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = { showDeleteDialog = false }) {
-            Text("Cancel")
-          }
-        }
-      )
-    }
-
-    // Premium Upgrade Dialog
     if (showPremiumDialog) {
       AlertDialog(
         onDismissRequest = { showPremiumDialog = false },
-        title = {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Star, contentDescription = null, tint = WarmGold)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Brother & Sister Premium ❤️")
-          }
-        },
+        title = { Text("Brother & Sister Premium ❤️") },
         text = {
-          Column {
-            Text(
-              text = "Preserve a lifetime of high definition photos, videos, and unlimited albums with cloud backup.",
-              style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Surface(
-              color = MaterialTheme.colorScheme.primaryContainer,
-              shape = RoundedCornerShape(12.dp),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                  text = "Special Launch Pricing:",
-                  style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onPrimaryContainer)
-                )
-                Text(
-                  text = "₹19 / Month  or  ₹199 / Year",
-                  style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                  )
-                )
-              }
-            }
-          }
+          Text("Unlimited HD photos, videos and cloud backup. Launch pricing: ₹19/month or ₹199/year.")
         },
-        confirmButton = {
-          Button(
-            onClick = { showPremiumDialog = false },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-          ) {
-            Text("Activate Plan")
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = { showPremiumDialog = false }) {
-            Text("Later")
-          }
-        }
+        confirmButton = { TextButton(onClick = { showPremiumDialog = false }) { Text("OK") } }
       )
     }
   }
 }
 
 @Composable
-fun ProfileMenuItem(
-  icon: ImageVector,
+private fun ProfileMenuItem(
+  icon: androidx.compose.ui.graphics.vector.ImageVector,
   title: String,
-  subtitle: String? = null,
-  onClick: () -> Unit
+  subtitle: String? = null
 ) {
   Row(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clickable { onClick() }
-      .padding(horizontal = 16.dp, vertical = 14.dp),
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
     verticalAlignment = Alignment.CenterVertically
   ) {
-    Icon(
-      imageVector = icon,
-      contentDescription = null,
-      tint = MaterialTheme.colorScheme.primary,
-      modifier = Modifier.size(22.dp)
-    )
-
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
     Spacer(modifier = Modifier.width(14.dp))
-
     Column(modifier = Modifier.weight(1f)) {
-      Text(
-        text = title,
-        style = MaterialTheme.typography.bodyLarge.copy(
-          fontWeight = FontWeight.Medium,
-          color = MaterialTheme.colorScheme.onSurface
-        )
-      )
-      if (subtitle != null) {
+      Text(title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+      if (!subtitle.isNullOrBlank()) {
         Text(
-          text = subtitle,
-          style = MaterialTheme.typography.bodySmall.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-          )
+          subtitle,
+          style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
         )
       }
     }
-
-    Icon(
-      imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-      contentDescription = null,
-      tint = MaterialTheme.colorScheme.outline,
-      modifier = Modifier.size(14.dp)
-    )
+    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
   }
 }
