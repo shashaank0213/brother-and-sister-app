@@ -63,6 +63,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.theme.HeartRed
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 
 @Composable
@@ -74,10 +77,157 @@ fun ConnectSiblingScreen(
   var inviteEmail by remember { mutableStateOf("") }
   var isAccepted by remember { mutableStateOf(false) }
   var isCopied by remember { mutableStateOf(false) }
+  var isSending by remember { mutableStateOf(false) }
+  var isLoadingIncoming by remember { mutableStateOf(false) }
+  var incomingInvitationId by remember { mutableStateOf<String?>(null) }
+  var incomingFromUid by remember { mutableStateOf<String?>(null) }
+  var incomingFromName by remember { mutableStateOf("Your sibling") }
+  var errorMessage by remember { mutableStateOf<String?>(null) }
   val snackbarHostState = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
+  val auth = remember { FirebaseAuth.getInstance() }
+  val firestore = remember { FirebaseFirestore.getInstance() }
+  val currentUser = auth.currentUser
 
   val inviteLink = "https://brotherandsister.app/connect/shashank-k928"
+
+  fun loadIncomingInvitation() {
+    val email = currentUser?.email?.trim()?.lowercase() ?: return
+    isLoadingIncoming = true
+    errorMessage = null
+
+    firestore.collection("invitations")
+      .whereEqualTo("toEmail", email)
+      .whereEqualTo("status", "pending")
+      .limit(1)
+      .get()
+      .addOnSuccessListener { snapshot ->
+        val document = snapshot.documents.firstOrNull()
+        if (document != null) {
+          incomingInvitationId = document.id
+          incomingFromUid = document.getString("fromUid")
+          incomingFromName = document.getString("fromName") ?: "Your sibling"
+        } else {
+          incomingInvitationId = null
+          incomingFromUid = null
+        }
+        isLoadingIncoming = false
+      }
+      .addOnFailureListener { exception ->
+        isLoadingIncoming = false
+        errorMessage = exception.localizedMessage ?: "Could not load invitations."
+      }
+  }
+
+  fun sendInvitation() {
+    val email = inviteEmail.trim().lowercase()
+    val sender = currentUser
+
+    if (sender == null) {
+      errorMessage = "Please sign in before sending an invitation."
+      return
+    }
+    if (email.isBlank() || !email.contains("@")) {
+      errorMessage = "Enter a valid sibling email address."
+      return
+    }
+    if (email == sender.email?.trim()?.lowercase()) {
+      errorMessage = "You cannot invite your own account."
+      return
+    }
+
+    isSending = true
+    errorMessage = null
+
+    firestore.collection("users")
+      .whereEqualTo("email", email)
+      .limit(1)
+      .get()
+      .addOnSuccessListener { userSnapshot ->
+        val recipient = userSnapshot.documents.firstOrNull()
+        if (recipient == null) {
+          isSending = false
+          errorMessage = "No Brother & Sister account was found for this email. Ask your sibling to register first."
+          return@addOnSuccessListener
+        }
+
+        val recipientUid = recipient.id
+        val senderName = sender.displayName?.takeIf { it.isNotBlank() }
+          ?: "Your sibling"
+
+        val invitation = hashMapOf<String, Any>(
+          "fromUid" to sender.uid,
+          "fromName" to senderName,
+          "toUid" to recipientUid,
+          "toEmail" to email,
+          "status" to "pending",
+          "createdAt" to FieldValue.serverTimestamp()
+        )
+
+        firestore.collection("invitations")
+          .add(invitation)
+          .addOnSuccessListener {
+            isSending = false
+            inviteEmail = ""
+            coroutineScope.launch {
+              snackbarHostState.showSnackbar("Invitation sent successfully!")
+            }
+          }
+          .addOnFailureListener { exception ->
+            isSending = false
+            errorMessage = exception.localizedMessage ?: "Could not send invitation."
+          }
+      }
+      .addOnFailureListener { exception ->
+        isSending = false
+        errorMessage = exception.localizedMessage ?: "Could not find that account."
+      }
+  }
+
+  fun acceptInvitation() {
+    val invitationId = incomingInvitationId
+    val fromUid = incomingFromUid
+    val toUid = currentUser?.uid
+
+    if (invitationId == null || fromUid == null || toUid == null) {
+      errorMessage = "This invitation is no longer available."
+      return
+    }
+
+    errorMessage = null
+    val connection = hashMapOf<String, Any>(
+      "user1Uid" to fromUid,
+      "user2Uid" to toUid,
+      "createdAt" to FieldValue.serverTimestamp()
+    )
+
+    firestore.collection("siblingConnections")
+      .add(connection)
+      .addOnSuccessListener {
+        firestore.collection("invitations")
+          .document(invitationId)
+          .update(
+            mapOf(
+              "status" to "accepted",
+              "acceptedAt" to FieldValue.serverTimestamp()
+            )
+          )
+          .addOnSuccessListener {
+            isAccepted = true
+            onConnectedSuccess()
+          }
+          .addOnFailureListener { exception ->
+            errorMessage = exception.localizedMessage ?: "Connected, but the invitation status could not be updated."
+          }
+      }
+      .addOnFailureListener { exception ->
+        errorMessage = exception.localizedMessage ?: "Could not create the sibling connection."
+      }
+  }
+
+  if (selectedTab == 1 && incomingInvitationId == null && !isLoadingIncoming) {
+    loadIncomingInvitation()
+  }
 
   Box(
     modifier = Modifier
@@ -116,15 +266,33 @@ fun ConnectSiblingScreen(
         )
         Tab(
           selected = selectedTab == 1,
-          onClick = { selectedTab = 1 },
+          onClick = {
+            selectedTab = 1
+            loadIncomingInvitation()
+          },
           text = { Text("Incoming Request") }
         )
       }
 
       Spacer(modifier = Modifier.height(24.dp))
 
+      errorMessage?.let { message ->
+        Card(
+          modifier = Modifier.fillMaxWidth(),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+          shape = RoundedCornerShape(14.dp)
+        ) {
+          Text(
+            text = message,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(14.dp),
+            style = MaterialTheme.typography.bodyMedium
+          )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+      }
+
       if (selectedTab == 0) {
-        // Invite Brother/Sister
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
           Box(
             modifier = Modifier
@@ -137,141 +305,21 @@ fun ConnectSiblingScreen(
           }
 
           Spacer(modifier = Modifier.height(16.dp))
-
           Text(
             text = "Invite Your Brother or Sister",
-            style = MaterialTheme.typography.headlineMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.onSurface
-            ),
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
             textAlign = TextAlign.Center
           )
-
           Spacer(modifier = Modifier.height(8.dp))
-
           Text(
-            text = "Only one connected sibling gets access to your private shared sanctuary.",
-            style = MaterialTheme.typography.bodyMedium.copy(
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            ),
+            text = "Only connected siblings will get access to the private shared space.",
+            style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 16.dp)
           )
 
           Spacer(modifier = Modifier.height(24.dp))
 
-          // Method 1: Invitation Link
-          Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-          ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text = "Private Invitation Link",
-                  style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-              }
-              Spacer(modifier = Modifier.height(8.dp))
-              Text(
-                text = inviteLink,
-                style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
-              )
-              Spacer(modifier = Modifier.height(14.dp))
-              Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                  onClick = {
-                    isCopied = true
-                    coroutineScope.launch { snackbarHostState.showSnackbar("Invitation link copied to clipboard!") }
-                  },
-                  shape = RoundedCornerShape(12.dp),
-                  colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                  modifier = Modifier.weight(1f)
-                ) {
-                  Icon(
-                    if (isCopied) Icons.Default.CheckCircle else Icons.Default.ContentCopy,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(if (isCopied) "Copied!" else "Copy Link")
-                }
-
-                OutlinedButton(
-                  onClick = {
-                    coroutineScope.launch { snackbarHostState.showSnackbar("Opening system share sheet...") }
-                  },
-                  shape = RoundedCornerShape(12.dp),
-                  modifier = Modifier.weight(1f)
-                ) {
-                  Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Share")
-                }
-              }
-            }
-          }
-
-          Spacer(modifier = Modifier.height(16.dp))
-
-          // Method 2: QR Code Visual
-          Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-          ) {
-            Column(
-              modifier = Modifier.padding(18.dp),
-              horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                Icon(Icons.Default.QrCode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text = "Scan QR Code in Person",
-                  style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-              }
-
-              Spacer(modifier = Modifier.height(14.dp))
-
-              Box(
-                modifier = Modifier
-                  .size(160.dp)
-                  .clip(RoundedCornerShape(16.dp))
-                  .background(Color.White)
-                  .padding(16.dp),
-                contentAlignment = Alignment.Center
-              ) {
-                Image(
-                  painter = painterResource(id = R.drawable.ic_app_logo),
-                  contentDescription = "QR Code Placeholder",
-                  contentScale = ContentScale.Fit,
-                  modifier = Modifier.size(128.dp)
-                )
-              }
-
-              Spacer(modifier = Modifier.height(10.dp))
-
-              Text(
-                text = "Hold sibling's phone camera over this code to connect instantly",
-                style = MaterialTheme.typography.bodySmall.copy(
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                  textAlign = TextAlign.Center
-                )
-              )
-            }
-          }
-
-          Spacer(modifier = Modifier.height(16.dp))
-
-          // Method 3: Direct Email Invite
           Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -281,15 +329,15 @@ fun ConnectSiblingScreen(
               Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text = "Send via Email",
-                  style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                Text("Send via Email", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
               }
               Spacer(modifier = Modifier.height(12.dp))
               OutlinedTextField(
                 value = inviteEmail,
-                onValueChange = { inviteEmail = it },
+                onValueChange = {
+                  inviteEmail = it
+                  errorMessage = null
+                },
                 label = { Text("Sibling's Email Address") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -297,150 +345,116 @@ fun ConnectSiblingScreen(
               )
               Spacer(modifier = Modifier.height(12.dp))
               Button(
+                onClick = ::sendInvitation,
+                enabled = !isSending,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Text(if (isSending) "Sending..." else "Send Private Invitation")
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(16.dp))
+
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+          ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Invitation Link", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+              }
+              Spacer(modifier = Modifier.height(8.dp))
+              Text(inviteLink, style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+              Spacer(modifier = Modifier.height(14.dp))
+              Button(
                 onClick = {
-                  if (inviteEmail.isNotBlank()) {
-                    coroutineScope.launch {
-                      snackbarHostState.showSnackbar("Invitation sent to $inviteEmail!")
-                    }
-                  }
+                  isCopied = true
+                  coroutineScope.launch { snackbarHostState.showSnackbar("Invitation link copied to clipboard!") }
                 },
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
               ) {
-                Text("Send Private Invitation")
+                Icon(if (isCopied) Icons.Default.CheckCircle else Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (isCopied) "Copied!" else "Copy Link")
               }
             }
           }
         }
       } else {
-        // Incoming Request View (User B side experience)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          if (!isAccepted) {
+          if (isLoadingIncoming) {
+            Text("Checking for invitations...", style = MaterialTheme.typography.bodyMedium)
+          } else if (incomingInvitationId != null && !isAccepted) {
             Card(
               modifier = Modifier.fillMaxWidth(),
               shape = RoundedCornerShape(24.dp),
-              colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-              ),
-              border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
             ) {
-              Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-              ) {
-                Box(
-                  modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                  contentAlignment = Alignment.Center
-                ) {
-                  Image(
-                    painter = painterResource(id = R.drawable.ic_app_logo),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                  )
-                }
-
+              Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed, modifier = Modifier.size(54.dp))
                 Spacer(modifier = Modifier.height(16.dp))
-
                 Text(
-                  text = "Ananya wants to create a private Brother/Sister memory space with you.",
-                  style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    lineHeight = 26.sp
-                  ),
+                  text = "$incomingFromName wants to create a private Brother/Sister memory space with you.",
+                  style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                   textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(10.dp))
-
                 Text(
-                  text = "By accepting, you two will share a locked, private space for childhood photos, videos, and memories.",
-                  style = MaterialTheme.typography.bodySmall.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                  ),
+                  text = "Accepting will connect both accounts so the private shared space can be used by both siblings.",
+                  style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                   textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                   OutlinedButton(
                     onClick = {
-                      coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Invitation declined.")
+                      incomingInvitationId?.let { id ->
+                        firestore.collection("invitations").document(id)
+                          .update("status", "declined")
+                          .addOnSuccessListener {
+                            incomingInvitationId = null
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Invitation declined.") }
+                          }
+                          .addOnFailureListener { exception ->
+                            errorMessage = exception.localizedMessage ?: "Could not decline invitation."
+                          }
                       }
                     },
-                    modifier = Modifier
-                      .weight(1f)
-                      .height(48.dp),
+                    modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp)
-                  ) {
-                    Text("Decline")
-                  }
+                  ) { Text("Decline") }
 
                   Button(
-                    onClick = {
-                      isAccepted = true
-                      onConnectedSuccess()
-                    },
-                    modifier = Modifier
-                      .weight(1f)
-                      .height(48.dp),
+                    onClick = ::acceptInvitation,
+                    modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                  ) {
-                    Text("Accept ❤️", fontWeight = FontWeight.Bold)
-                  }
+                  ) { Text("Accept ❤️", fontWeight = FontWeight.Bold) }
                 }
               }
             }
           } else {
             Card(
               modifier = Modifier.fillMaxWidth(),
-              shape = RoundedCornerShape(24.dp),
-              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+              shape = RoundedCornerShape(20.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
-              Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-              ) {
-                Icon(
-                  Icons.Default.Favorite,
-                  contentDescription = null,
-                  tint = HeartRed,
-                  modifier = Modifier.size(54.dp)
-                )
+              Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed, modifier = Modifier.size(48.dp))
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                  text = "Your Brother/Sister Space is Ready ❤️",
-                  style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                  ),
-                  textAlign = TextAlign.Center
-                )
+                Text("No pending invitations", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                  text = "Connected with Ananya! You can now preserve memories, share photos, and chat in complete privacy.",
-                  style = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                  ),
-                  textAlign = TextAlign.Center
+                  "When your sibling sends an invitation, it will appear here.",
+                  textAlign = TextAlign.Center,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(20.dp))
-                Button(
-                  onClick = onBack,
-                  shape = RoundedCornerShape(14.dp)
-                ) {
-                  Text("Enter Your Space")
-                }
               }
             }
           }
