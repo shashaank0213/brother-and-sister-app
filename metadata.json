@@ -1,0 +1,6 @@
+{
+  "name": "Brother & Sister",
+  "description": "A private place for brothers and sisters to preserve, share, and relive their memories together.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
