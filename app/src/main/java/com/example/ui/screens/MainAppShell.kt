@@ -82,6 +82,8 @@ fun MainAppShell(
   var selectedTab by remember { mutableIntStateOf(0) }
   var showAddMemoryDialog by remember { mutableStateOf(false) }
   var showConnectScreen by remember { mutableStateOf(false) }
+  var connectInitialTab by remember { mutableIntStateOf(0) }
+  var connectionRefreshKey by remember { mutableIntStateOf(0) }
   var currentUserProfile by remember { mutableStateOf(UserProfile()) }
   var currentConnection by remember {
     mutableStateOf(
@@ -101,7 +103,7 @@ fun MainAppShell(
   val auth = remember { FirebaseAuth.getInstance() }
   val db = remember { FirebaseFirestore.getInstance() }
 
-  LaunchedEffect(Unit) {
+  LaunchedEffect(connectionRefreshKey, auth.currentUser?.uid) {
     val uid = auth.currentUser?.uid ?: return@LaunchedEffect
 
     db.collection("users").document(uid).get().addOnSuccessListener { document ->
@@ -119,6 +121,14 @@ fun MainAppShell(
         )
       }
     }
+
+    currentConnection = SiblingConnection(
+      siblingName = "Sibling",
+      siblingRole = "Brother/Sister",
+      sharedMemoryCount = 0,
+      photoCount = 0,
+      videoCount = 0
+    )
 
     fun loadConnection(document: com.google.firebase.firestore.DocumentSnapshot) {
       val user1 = document.getString("user1Uid")
@@ -139,9 +149,9 @@ fun MainAppShell(
             connectionId = document.id,
             siblingName = name,
             siblingRole = role,
-            sharedMemoryCount = 42,
-            photoCount = 128,
-            videoCount = 14
+            sharedMemoryCount = 0,
+            photoCount = 0,
+            videoCount = 0
           )
         }
       }
@@ -176,11 +186,13 @@ fun MainAppShell(
 
   if (showConnectScreen) {
     ConnectSiblingScreen(
+      initialTab = connectInitialTab,
       onBack = { showConnectScreen = false },
       onConnectedSuccess = {
         showConnectScreen = false
+        connectionRefreshKey++
         coroutineScope.launch {
-          snackbarHostState.showSnackbar("Brother/Sister space activated ❤️")
+          snackbarHostState.showSnackbar("Brother/Sister connection activated ❤️")
         }
       }
     )
@@ -253,15 +265,14 @@ fun MainAppShell(
           memories = memoriesList,
           onAddMemoryClick = { showAddMemoryDialog = true },
           onMessageClick = { selectedTab = 2 },
-          onConnectSiblingClick = { showConnectScreen = true },
+          onConnectSiblingClick = {
+            connectInitialTab = 0
+            showConnectScreen = true
+          },
           onViewAllMemories = { selectedTab = 1 },
           onNotificationsClick = {
-            val name = currentConnection.siblingName
-            coroutineScope.launch {
-              snackbarHostState.showSnackbar(
-                if (currentConnection.siblingRole == "Brother/Sister") "No sibling connection yet" else "$name shared a new memory 🎂"
-              )
-            }
+            connectInitialTab = 1
+            showConnectScreen = true
           }
         )
         1 -> MemoriesScreen(memoriesList = memoriesList, onAddMemoryClick = { showAddMemoryDialog = true })
@@ -269,7 +280,10 @@ fun MainAppShell(
         3 -> AlbumsScreen()
         4 -> ProfileScreen(
           onLogout = onLogout,
-          onNavigateToConnect = { showConnectScreen = true }
+          onNavigateToConnect = {
+            connectInitialTab = 0
+            showConnectScreen = true
+          }
         )
       }
     }
