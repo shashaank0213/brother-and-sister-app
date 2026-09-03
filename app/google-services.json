@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "224649938671",
+    "project_id": "brother-sister-memories",
+    "storage_bucket": "brother-sister-memories.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:224649938671:android:e834949d17bdb8dbe7fd1a",
+        "android_client_info": {
+          "package_name": "com.aistudio.brothersister.memories"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3yIknWAuj0w1g3gH_kKVQ0ndai98R3Ig"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
