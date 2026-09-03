@@ -80,6 +80,7 @@ fun ConnectSiblingScreen(
 
   fun loadIncomingInvitation() {
     val uid = currentUser?.uid
+    val email = currentUser?.email?.trim()?.lowercase()
     if (uid.isNullOrBlank()) return
 
     loadingIncoming = true
@@ -91,16 +92,40 @@ fun ConnectSiblingScreen(
       .get()
       .addOnSuccessListener { snapshot ->
         val doc = snapshot.documents.firstOrNull()
-        if (doc == null) {
-          incomingInvitationId = null
-          incomingFromUid = null
-          incomingFromName = "Your sibling"
-        } else {
+        if (doc != null) {
           incomingInvitationId = doc.id
           incomingFromUid = doc.getString("fromUid")
           incomingFromName = doc.getString("fromName") ?: "Your sibling"
+          loadingIncoming = false
+        } else if (!email.isNullOrBlank()) {
+          // Fallback to check pending invitation by email
+          db.collection("invitations")
+            .whereEqualTo("toEmail", email)
+            .whereEqualTo("status", "pending")
+            .limit(1)
+            .get()
+            .addOnSuccessListener { emailSnapshot ->
+              val emailDoc = emailSnapshot.documents.firstOrNull()
+              if (emailDoc != null) {
+                incomingInvitationId = emailDoc.id
+                incomingFromUid = emailDoc.getString("fromUid")
+                incomingFromName = emailDoc.getString("fromName") ?: "Your sibling"
+              } else {
+                incomingInvitationId = null
+                incomingFromUid = null
+                incomingFromName = "Your sibling"
+              }
+              loadingIncoming = false
+            }
+            .addOnFailureListener {
+              loadingIncoming = false
+            }
+        } else {
+          incomingInvitationId = null
+          incomingFromUid = null
+          incomingFromName = "Your sibling"
+          loadingIncoming = false
         }
-        loadingIncoming = false
       }
       .addOnFailureListener { e ->
         loadingIncoming = false
@@ -344,44 +369,77 @@ fun ConnectSiblingScreen(
           }
         }
       } else {
-        if (loadingIncoming) {
-          Text("Checking for invitations...")
-        } else if (incomingInvitationId != null) {
-          Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-            Column(modifier = Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-              Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed, modifier = Modifier.size(52.dp))
-              Spacer(Modifier.height(14.dp))
-              Text(
-                "$incomingFromName wants to connect with you as a sibling.",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                textAlign = TextAlign.Center
-              )
-              Spacer(Modifier.height(10.dp))
-              Text("Accept to create the private shared sibling connection.", textAlign = TextAlign.Center)
-              Spacer(Modifier.height(20.dp))
-              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                  onClick = {
-                    val id = incomingInvitationId ?: return@OutlinedButton
-                    db.collection("invitations").document(id).update("status", "declined")
-                      .addOnSuccessListener {
-                        incomingInvitationId = null
-                        showMessage("Invitation declined.")
-                      }
-                      .addOnFailureListener { e -> showMessage(e.localizedMessage ?: "Could not decline invitation.", true) }
-                  },
-                  modifier = Modifier.weight(1f)
-                ) { Text("Decline") }
-                Button(onClick = ::acceptInvitation, enabled = !accepting, modifier = Modifier.weight(1f)) {
-                  Text(if (accepting) "Accepting..." else "Accept ❤️")
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+          if (loadingIncoming) {
+            Card(
+              modifier = Modifier.fillMaxWidth(),
+              shape = RoundedCornerShape(20.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+              Column(
+                modifier = Modifier.padding(28.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                Text("Checking for invitations...", style = MaterialTheme.typography.bodyMedium)
+              }
+            }
+          } else if (incomingInvitationId != null) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+              Column(modifier = Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed, modifier = Modifier.size(52.dp))
+                Spacer(Modifier.height(14.dp))
+                Text(
+                  "$incomingFromName wants to connect with you as a sibling.",
+                  style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                  textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(10.dp))
+                Text("Accept to create the private shared sibling connection.", textAlign = TextAlign.Center)
+                Spacer(Modifier.height(20.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                  OutlinedButton(
+                    onClick = {
+                      val id = incomingInvitationId ?: return@OutlinedButton
+                      db.collection("invitations").document(id).update("status", "declined")
+                        .addOnSuccessListener {
+                          incomingInvitationId = null
+                          showMessage("Invitation declined.")
+                        }
+                        .addOnFailureListener { e -> showMessage(e.localizedMessage ?: "Could not decline invitation.", true) }
+                    },
+                    modifier = Modifier.weight(1f)
+                  ) { Text("Decline") }
+                  Button(onClick = ::acceptInvitation, enabled = !accepting, modifier = Modifier.weight(1f)) {
+                    Text(if (accepting) "Accepting..." else "Accept ❤️")
+                  }
                 }
               }
             }
+          } else {
+            Card(
+              modifier = Modifier.fillMaxWidth(),
+              shape = RoundedCornerShape(20.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+              Column(
+                modifier = Modifier.padding(28.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = HeartRed.copy(alpha = 0.6f), modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(14.dp))
+                Text("No pending invitations", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                  "When your sibling sends an invitation to your email, it will appear here.",
+                  textAlign = TextAlign.Center,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+            }
           }
-        } else {
-          Text("No pending invitations", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-          Spacer(Modifier.height(8.dp))
-          Text("When your sibling sends an invitation, it will appear here.")
         }
       }
     }

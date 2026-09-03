@@ -101,11 +101,32 @@ fun LoginScreen(
           ),
           shape = RoundedCornerShape(12.dp)
         ) {
-          Text(
-            text = errorMessage!!,
-            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onErrorContainer),
-            modifier = Modifier.padding(12.dp)
-          )
+          Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+              text = errorMessage!!,
+              style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onErrorContainer)
+            )
+            if (errorMessage!!.contains("Tap 'Create Account'") || errorMessage!!.contains("Incorrect email or password")) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                TextButton(
+                  onClick = onNavigateToRegister,
+                  colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                ) {
+                  Text("Create Account", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                }
+                TextButton(
+                  onClick = onForgotPassword,
+                  colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                  Text("Reset Password", style = MaterialTheme.typography.labelMedium)
+                }
+              }
+            }
+          }
         }
       }
       Spacer(modifier = Modifier.height(16.dp))

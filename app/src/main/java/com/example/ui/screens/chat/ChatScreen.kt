@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,9 +40,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -62,21 +65,167 @@ import com.example.R
 import com.example.data.SampleData
 import com.example.model.ChatMessage
 import com.example.ui.theme.HeartRed
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-  siblingName: String = "Ananya"
+  siblingName: String = "Sibling",
+  siblingRole: String = "Brother/Sister",
+  connectionId: String? = null,
+  currentUserId: String? = null,
+  currentUserName: String = "You",
+  onConnectSiblingClick: () -> Unit = {}
 ) {
-  val messages = remember { mutableStateListOf<ChatMessage>().apply { addAll(SampleData.sampleChatMessages) } }
+  val auth = remember { FirebaseAuth.getInstance() }
+  val db = remember { FirebaseFirestore.getInstance() }
+  val effectiveUserId = currentUserId ?: auth.currentUser?.uid
+  var activeConnectionId by remember { mutableStateOf(connectionId) }
+
+  val messages = remember { mutableStateListOf<ChatMessage>() }
   var messageText by remember { mutableStateOf("") }
   val listState = rememberLazyListState()
   val coroutineScope = rememberCoroutineScope()
 
+  // Attempt to resolve connectionId if not passed
+  LaunchedEffect(connectionId, effectiveUserId) {
+    if (!connectionId.isNullOrBlank()) {
+      activeConnectionId = connectionId
+    } else if (!effectiveUserId.isNullOrBlank()) {
+      db.collection("siblingConnections")
+        .whereEqualTo("user1Uid", effectiveUserId)
+        .limit(1)
+        .get()
+        .addOnSuccessListener { snap1 ->
+          val doc1 = snap1.documents.firstOrNull()
+          if (doc1 != null) {
+            activeConnectionId = doc1.id
+          } else {
+            db.collection("siblingConnections")
+              .whereEqualTo("user2Uid", effectiveUserId)
+              .limit(1)
+              .get()
+              .addOnSuccessListener { snap2 ->
+                val doc2 = snap2.documents.firstOrNull()
+                if (doc2 != null) activeConnectionId = doc2.id
+              }
+          }
+        }
+    }
+  }
+
+  // Real-time listener for chat messages
+  DisposableEffect(activeConnectionId, effectiveUserId) {
+    val connId = activeConnectionId
+    if (connId.isNullOrBlank()) {
+      if (messages.isEmpty()) {
+        messages.addAll(SampleData.sampleChatMessages)
+      }
+      onDispose { }
+    } else {
+      val registration = db.collection("siblingConnections")
+        .document(connId)
+        .collection("messages")
+        .orderBy("createdAt", Query.Direction.ASCENDING)
+        .addSnapshotListener { snapshot, error ->
+          if (snapshot != null) {
+            val loadedMessages = snapshot.documents.mapNotNull { doc ->
+              val text = doc.getString("text") ?: return@mapNotNull null
+              val senderId = doc.getString("senderId") ?: ""
+              val senderName = doc.getString("senderName") ?: "Sibling"
+              val isMe = senderId == effectiveUserId
+              val hasPhoto = doc.getBoolean("hasPhoto") ?: false
+              val timeObj = doc.get("timestamp")
+              val createdAtMillis = doc.getLong("createdAt") ?: 0L
+              val formattedTime = when (timeObj) {
+                is com.google.firebase.Timestamp -> {
+                  val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                  sdf.format(timeObj.toDate())
+                }
+                else -> {
+                  if (createdAtMillis > 0) {
+                    val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                    sdf.format(Date(createdAtMillis))
+                  } else "Just now"
+                }
+              }
+              val isRead = doc.getBoolean("isRead") ?: isMe
+
+              ChatMessage(
+                id = doc.id,
+                senderId = senderId,
+                senderName = senderName,
+                text = text,
+                timestamp = formattedTime,
+                isFromMe = isMe,
+                hasPhoto = hasPhoto,
+                photoDrawableRes = if (hasPhoto) R.drawable.hero_family else null,
+                isRead = isRead
+              )
+            }
+
+            messages.clear()
+            messages.addAll(loadedMessages)
+          }
+        }
+
+      onDispose {
+        registration.remove()
+      }
+    }
+  }
+
   LaunchedEffect(messages.size) {
-    listState.animateScrollToItem(messages.size - 1)
+    if (messages.isNotEmpty()) {
+      listState.animateScrollToItem(messages.size - 1)
+    }
+  }
+
+  fun sendNewMessage(textToSend: String, withPhoto: Boolean = false) {
+    val clean = textToSend.trim()
+    if (clean.isBlank() && !withPhoto) return
+
+    val connId = activeConnectionId
+    val currentUid = effectiveUserId ?: "user"
+    val senderName = if (currentUserName.isNotBlank()) currentUserName else "You"
+
+    if (!connId.isNullOrBlank()) {
+      val data = hashMapOf<String, Any>(
+        "senderId" to currentUid,
+        "senderName" to senderName,
+        "text" to clean,
+        "hasPhoto" to withPhoto,
+        "createdAt" to System.currentTimeMillis(),
+        "timestamp" to FieldValue.serverTimestamp(),
+        "isRead" to false
+      )
+      db.collection("siblingConnections")
+        .document(connId)
+        .collection("messages")
+        .add(data)
+    } else {
+      messages.add(
+        ChatMessage(
+          id = "msg_${UUID.randomUUID()}",
+          senderId = currentUid,
+          senderName = senderName,
+          text = clean,
+          timestamp = "Just now",
+          isFromMe = true,
+          hasPhoto = withPhoto,
+          photoDrawableRes = if (withPhoto) R.drawable.hero_family else null,
+          isRead = false
+        )
+      )
+    }
   }
 
   Column(
@@ -138,7 +287,7 @@ fun ChatScreen(
               )
               Spacer(modifier = Modifier.width(4.dp))
               Text(
-                text = "Private Brother/Sister Space",
+                text = if (activeConnectionId != null) "Private Brother/Sister Space" else "Private Chat Preview",
                 style = MaterialTheme.typography.labelSmall.copy(
                   color = MaterialTheme.colorScheme.outline
                 )
@@ -149,6 +298,40 @@ fun ChatScreen(
 
         IconButton(onClick = { /* Menu */ }) {
           Icon(Icons.Default.MoreVert, contentDescription = "More")
+        }
+      }
+    }
+
+    if (activeConnectionId.isNullOrBlank()) {
+      Card(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(14.dp)
+      ) {
+        Row(
+          modifier = Modifier.padding(12.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Not Connected Yet",
+              style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+              text = "Connect with your sibling to receive & sync real-time messages.",
+              style = MaterialTheme.typography.bodySmall
+            )
+          }
+          Spacer(modifier = Modifier.width(8.dp))
+          Button(
+            onClick = onConnectSiblingClick,
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Text("Connect", style = MaterialTheme.typography.labelSmall)
+          }
         }
       }
     }
@@ -184,6 +367,51 @@ fun ChatScreen(
         }
       }
 
+      if (messages.isEmpty() && !activeConnectionId.isNullOrBlank()) {
+        item {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Icon(
+              Icons.Default.Favorite,
+              contentDescription = null,
+              tint = HeartRed,
+              modifier = Modifier.size(42.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+              text = "Your private space with $siblingName",
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "Say hi or tap a prompt to start reminiscing!",
+              style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            val starters = listOf(
+              "Hey $siblingName! 👋",
+              "Remember that road trip we took? 🚗",
+              "Sending you love today ❤️"
+            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+            ) {
+              starters.forEach { prompt ->
+                SuggestionChip(
+                  onClick = { sendNewMessage(prompt) },
+                  label = { Text(prompt, style = MaterialTheme.typography.labelSmall) }
+                )
+              }
+            }
+          }
+        }
+      }
+
       items(messages) { message ->
         ChatBubble(message = message)
       }
@@ -203,20 +431,7 @@ fun ChatScreen(
       ) {
         IconButton(
           onClick = {
-            // Attach demo photo message
-            messages.add(
-              ChatMessage(
-                id = "msg_${UUID.randomUUID()}",
-                senderId = "user_shashank",
-                senderName = "Shashank",
-                text = "Sharing this sweet memory with you! ❤️",
-                timestamp = "Just now",
-                isFromMe = true,
-                hasPhoto = true,
-                photoDrawableRes = R.drawable.hero_family,
-                isRead = true
-              )
-            )
+            sendNewMessage("Sharing a sweet childhood memory with you! ❤️", withPhoto = true)
           }
         ) {
           Icon(
@@ -246,17 +461,7 @@ fun ChatScreen(
         IconButton(
           onClick = {
             if (messageText.isNotBlank()) {
-              messages.add(
-                ChatMessage(
-                  id = "msg_${UUID.randomUUID()}",
-                  senderId = "user_shashank",
-                  senderName = "Shashank",
-                  text = messageText.trim(),
-                  timestamp = "Just now",
-                  isFromMe = true,
-                  isRead = false
-                )
-              )
+              sendNewMessage(messageText)
               messageText = ""
             }
           },

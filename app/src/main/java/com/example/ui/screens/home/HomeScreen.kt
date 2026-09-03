@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -80,6 +82,7 @@ fun HomeScreen(
   user: UserProfile = SampleData.currentUser,
   connection: SiblingConnection = SampleData.siblingConnection,
   memories: List<MemoryItem> = SampleData.sampleMemories,
+  pendingNotificationCount: Int = 0,
   onAddMemoryClick: () -> Unit,
   onMessageClick: () -> Unit,
   onConnectSiblingClick: () -> Unit,
@@ -127,11 +130,30 @@ fun HomeScreen(
             onClick = onNotificationsClick,
             modifier = Modifier.size(44.dp)
           ) {
-            Icon(
-              imageVector = Icons.Default.NotificationsNone,
-              contentDescription = "Notifications",
-              tint = EditorialMauve
-            )
+            BadgedBox(
+              badge = {
+                if (pendingNotificationCount > 0) {
+                  Badge(
+                    containerColor = HeartRed,
+                    contentColor = Color.White
+                  ) {
+                    Text(
+                      text = if (pendingNotificationCount > 9) "9+" else "$pendingNotificationCount",
+                      style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                      )
+                    )
+                  }
+                }
+              }
+            ) {
+              Icon(
+                imageVector = Icons.Default.NotificationsNone,
+                contentDescription = "Notifications",
+                tint = EditorialMauve
+              )
+            }
           }
 
           Box(

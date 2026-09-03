@@ -32,6 +32,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -84,10 +85,12 @@ fun MainAppShell(
   var showConnectScreen by remember { mutableStateOf(false) }
   var connectInitialTab by remember { mutableIntStateOf(0) }
   var connectionRefreshKey by remember { mutableIntStateOf(0) }
+  var pendingInvitationCount by remember { mutableIntStateOf(0) }
   var currentUserProfile by remember { mutableStateOf(UserProfile()) }
   var currentConnection by remember {
     mutableStateOf(
       SiblingConnection(
+        connectionId = "",
         siblingName = "Sibling",
         siblingRole = "Brother/Sister",
         sharedMemoryCount = 0,
@@ -103,7 +106,8 @@ fun MainAppShell(
   val auth = remember { FirebaseAuth.getInstance() }
   val db = remember { FirebaseFirestore.getInstance() }
 
-  LaunchedEffect(connectionRefreshKey, auth.currentUser?.uid) {
+  // Load user profile
+  LaunchedEffect(auth.currentUser?.uid) {
     val uid = auth.currentUser?.uid ?: return@LaunchedEffect
 
     db.collection("users").document(uid).get().addOnSuccessListener { document ->
@@ -121,59 +125,106 @@ fun MainAppShell(
         )
       }
     }
+  }
 
-    currentConnection = SiblingConnection(
-      siblingName = "Sibling",
-      siblingRole = "Brother/Sister",
-      sharedMemoryCount = 0,
-      photoCount = 0,
-      videoCount = 0
-    )
+  // Real-time listener for incoming pending invitations to show badge on bell icon
+  DisposableEffect(auth.currentUser?.uid, connectionRefreshKey) {
+    val uid = auth.currentUser?.uid
+    val email = auth.currentUser?.email?.trim()?.lowercase().orEmpty()
 
-    fun loadConnection(document: com.google.firebase.firestore.DocumentSnapshot) {
-      val user1 = document.getString("user1Uid")
-      val user2 = document.getString("user2Uid")
-      val otherUid = if (user1 == uid) user2 else user1
-      if (otherUid.isNullOrBlank()) return
+    if (uid.isNullOrBlank()) {
+      onDispose { }
+    } else {
+      var uidInviteDocs = emptySet<String>()
+      var emailInviteDocs = emptySet<String>()
 
-      db.collection("users").document(otherUid).get().addOnSuccessListener { sibling ->
-        if (sibling.exists()) {
-          val gender = sibling.getString("gender")?.lowercase()
-          val role = when (gender) {
-            "sister" -> "Sister"
-            "brother" -> "Brother"
-            else -> "Sibling"
-          }
-          val name = sibling.getString("firstName") ?: "Sibling"
-          currentConnection = SiblingConnection(
-            connectionId = document.id,
-            siblingName = name,
-            siblingRole = role,
-            sharedMemoryCount = 0,
-            photoCount = 0,
-            videoCount = 0
-          )
+      fun updateBadge() {
+        pendingInvitationCount = (uidInviteDocs + emailInviteDocs).size
+      }
+
+      val regUid = db.collection("invitations")
+        .whereEqualTo("toUid", uid)
+        .whereEqualTo("status", "pending")
+        .addSnapshotListener { snap, _ ->
+          uidInviteDocs = snap?.documents?.map { it.id }?.toSet() ?: emptySet()
+          updateBadge()
         }
+
+      val regEmail = if (email.isNotBlank()) {
+        db.collection("invitations")
+          .whereEqualTo("toEmail", email)
+          .whereEqualTo("status", "pending")
+          .addSnapshotListener { snap, _ ->
+            emailInviteDocs = snap?.documents?.map { it.id }?.toSet() ?: emptySet()
+            updateBadge()
+          }
+      } else null
+
+      onDispose {
+        regUid.remove()
+        regEmail?.remove()
       }
     }
+  }
 
-    db.collection("siblingConnections")
-      .whereEqualTo("user1Uid", uid)
-      .limit(1)
-      .get()
-      .addOnSuccessListener { first ->
-        if (first.documents.isNotEmpty()) {
-          loadConnection(first.documents.first())
-        } else {
-          db.collection("siblingConnections")
-            .whereEqualTo("user2Uid", uid)
-            .limit(1)
-            .get()
-            .addOnSuccessListener { second ->
-              if (second.documents.isNotEmpty()) loadConnection(second.documents.first())
+  // Real-time listener for sibling connection status
+  DisposableEffect(auth.currentUser?.uid, connectionRefreshKey) {
+    val uid = auth.currentUser?.uid
+    if (uid.isNullOrBlank()) {
+      onDispose { }
+    } else {
+      fun handleConnectionDoc(document: com.google.firebase.firestore.DocumentSnapshot) {
+        val user1 = document.getString("user1Uid")
+        val user2 = document.getString("user2Uid")
+        val otherUid = if (user1 == uid) user2 else user1
+        if (otherUid.isNullOrBlank()) return
+
+        db.collection("users").document(otherUid).get().addOnSuccessListener { sibling ->
+          if (sibling.exists()) {
+            val gender = sibling.getString("gender")?.lowercase()
+            val role = when (gender) {
+              "sister" -> "Sister"
+              "brother" -> "Brother"
+              else -> "Sibling"
             }
+            val name = sibling.getString("firstName") ?: "Sibling"
+            currentConnection = SiblingConnection(
+              connectionId = document.id,
+              siblingName = name,
+              siblingRole = role,
+              sharedMemoryCount = 0,
+              photoCount = 0,
+              videoCount = 0
+            )
+          }
         }
       }
+
+      val reg1 = db.collection("siblingConnections")
+        .whereEqualTo("user1Uid", uid)
+        .limit(1)
+        .addSnapshotListener { snap, _ ->
+          val doc = snap?.documents?.firstOrNull()
+          if (doc != null) {
+            handleConnectionDoc(doc)
+          }
+        }
+
+      val reg2 = db.collection("siblingConnections")
+        .whereEqualTo("user2Uid", uid)
+        .limit(1)
+        .addSnapshotListener { snap, _ ->
+          val doc = snap?.documents?.firstOrNull()
+          if (doc != null) {
+            handleConnectionDoc(doc)
+          }
+        }
+
+      onDispose {
+        reg1.remove()
+        reg2.remove()
+      }
+    }
   }
 
   val navItems = listOf(
@@ -187,7 +238,10 @@ fun MainAppShell(
   if (showConnectScreen) {
     ConnectSiblingScreen(
       initialTab = connectInitialTab,
-      onBack = { showConnectScreen = false },
+      onBack = {
+        showConnectScreen = false
+        connectionRefreshKey++
+      },
       onConnectedSuccess = {
         showConnectScreen = false
         connectionRefreshKey++
@@ -263,6 +317,7 @@ fun MainAppShell(
           user = currentUserProfile,
           connection = currentConnection,
           memories = memoriesList,
+          pendingNotificationCount = pendingInvitationCount,
           onAddMemoryClick = { showAddMemoryDialog = true },
           onMessageClick = { selectedTab = 2 },
           onConnectSiblingClick = {
@@ -276,7 +331,17 @@ fun MainAppShell(
           }
         )
         1 -> MemoriesScreen(memoriesList = memoriesList, onAddMemoryClick = { showAddMemoryDialog = true })
-        2 -> ChatScreen(siblingName = currentConnection.siblingName)
+        2 -> ChatScreen(
+          siblingName = currentConnection.siblingName,
+          siblingRole = currentConnection.siblingRole,
+          connectionId = currentConnection.connectionId.takeIf { it.isNotBlank() && it != "conn_1" },
+          currentUserId = auth.currentUser?.uid,
+          currentUserName = currentUserProfile.firstName,
+          onConnectSiblingClick = {
+            connectInitialTab = 0
+            showConnectScreen = true
+          }
+        )
         3 -> AlbumsScreen()
         4 -> ProfileScreen(
           onLogout = onLogout,
